@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>کافه سه‌بعدی | منوی تعاملی</title>
+    
+    <!-- نمایشگر سه‌بعدی تعاملی برای پاپ‌آپ محصولات -->
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+
+    <!-- نقشه ایمپورت برای Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: Tahoma, sans-serif; }
+        body { overflow: hidden; background: #111; color: #fff; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+        /* صفحه لودینگ */
+        #loader-screen {
+            position: fixed; inset: 0; background: #18181b; z-index: 9999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 45px; height: 45px; border: 4px solid #333; border-top-color: #fbbf24;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* هدر و دکمه سبد خرید */
+        #top-bar {
+            position: fixed; top: 15px; left: 15px; right: 15px;
+            display: flex; justify-content: space-between; align-items: center;
+            z-index: 100; pointer-events: none;
+        }
+        .badge-info {
+            background: rgba(24, 24, 27, 0.85); backdrop-filter: blur(8px);
+            padding: 10px 16px; border-radius: 12px; border: 1px solid #3f3f46;
+            font-size: 13px; pointer-events: auto;
+        }
+        #cart-btn {
+            background: #fbbf24; color: #000; border: none; padding: 10px 18px;
+            border-radius: 12px; font-weight: bold; font-size: 14px; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(251, 191, 36, 0.4); pointer-events: auto;
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        /* پاپ‌آپ عمومی (هم برای محصولات 3D و هم برای سبد خرید) */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+            z-index: 1000; justify-content: center; align-items: center; padding: 15px;
+        }
+        .modal-box {
+            background: #18181b; border: 1px solid #3f3f46; border-radius: 18px;
+            width: 360px; max-width: 100%; padding: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+            animation: popIn 0.25s ease-out;
+        }
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid #27272a; padding-bottom: 12px; margin-bottom: 12px;
+        }
+        .close-btn { background: none; border: none; color: #ef4444; font-size: 20px; cursor: pointer; }
+
+        model-viewer {
+            width: 100%; height: 210px; background: #27272a; border-radius: 12px; margin-bottom: 8px;
+        }
+        .items-list {
+            display: flex; flex-direction: column; gap: 8px; max-height: 210px; overflow-y: auto; margin-top: 10px;
+        }
+        .item-row {
+            display: flex; justify-content: space-between; align-items: center;
+            background: #27272a; padding: 10px 12px; border-radius: 10px;
+        }
+        .add-btn {
+            background: #16a34a; color: #fff; border: none; padding: 6px 12px;
+            border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: bold;
+        }
+        .add-btn:active { transform: scale(0.95); }
+    </style>
+</head>
+<body>
+
+    <!-- صفحه لودینگ اولیه -->
+    <div id="loader-screen">
+        <div class="spinner"></div>
+        <div style="font-size: 14px; color: #e4e4e7;">در حال آماده‌سازی فضای سه‌بعدی کافه...</div>
+    </div>
+
+    <!-- نوار بالای صفحه -->
+    <div id="top-bar">
+        <div class="badge-info">☕ روی محصولات داخل ویترین کلیک کنید</div>
+        <button id="cart-btn" onclick="openCartModal()">
+            🛒 سبد خرید (<span id="cart-count">0</span>)
+        </button>
+    </div>
+
+    <!-- بوم سه بعدی -->
+    <div id="canvas-container"></div>
+
+    <!-- پاپ‌آپ پیش‌نمایش ۳۶۰ درجه و سفارش محصول -->
+    <div id="product-modal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 id="modal-title" style="font-size: 16px; color: #fbbf24;">محصول</h3>
+                <button class="close-btn" onclick="closeProductModal()">✖</button>
+            </div>
+            <model-viewer id="viewer-3d" src="" auto-rotate camera-controls shadow-intensity="1"></model-viewer>
+            <div style="text-align: center; font-size: 11px; color: #a1a1aa;">👆 محصول را با انگشت یا موس بچرخانید</div>
+            <div id="modal-items" class="items-list"></div>
+        </div>
+    </div>
+
+    <!-- پاپ‌آپ سبد خرید -->
+    <div id="cart-modal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 style="font-size: 16px; color: #fbbf24;">🛒 سبد سفارش شما</h3>
+                <button class="close-btn" onclick="closeCartModal()">✖</button>
+            </div>
+            <div id="cart-items-container" class="items-list"></div>
+            <div style="border-top: 1px solid #27272a; margin-top: 12px; padding-top: 12px; display: flex; justify-content: space-between; font-weight: bold;">
+                <span>جمع کل:</span>
+                <span id="cart-total" style="color: #4ade80;">0 تومان</span>
+            </div>
+            <button onclick="submitOrder()" style="width: 100%; background: #fbbf24; color: #000; border: none; padding: 12px; border-radius: 10px; font-weight: bold; margin-top: 12px; cursor: pointer;">ثبت نهایی سفارش</button>
+        </div>
+    </div>
+
+    <!-- اسکریپت اصلی Three.js و منطق فروشگاه -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // ۱. تنظیمات صحنه، دوربین و رندرر
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x18181b);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 1.8, 3.8); // زاویه دید مشتری هنگام ورود به کافه
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        container.appendChild(renderer.domElement);
+
+        // ۲. کنترل چرخش و زوم دوربین
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(0, 1.1, -1.2); // تمرکز دوربین روی کانتر
+        controls.maxPolarAngle = Math.PI / 2 - 0.05; // جلوگیری از رفتن دوربین زیر زمین
+
+        // ۳. نورپردازی گرم کافه
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfff5e4, 2);
+        dirLight.position.set(3, 6, 4);
+        scene.add(dirLight);
+
+        // ۴. کاتالوگ محصولات کافه (لینک‌های گیت‌هاب شما)
+        const BASE_URL = "https://raw.githubusercontent.com/Sirens-cmyk/model3d/main/";
+        
+        const productsCatalog = {
+            breakfast_pack: {
+                title: "پک تست‌های صبحانه (۶ مدل)",
+                modelUrl: BASE_URL + "breakfast_toast_pack_3d_model.glb",
+                items: [
+                    { name: "تست آووکادو ویژه", price: 145000 },
+                    { name: "تست عسل طبیعی", price: 95000 },
+                    { name: "تست قارچ و پنیر خامه‌ای", price: 135000 },
+                    { name: "تست نوتلا و موز", price: 125000 },
+                    { name: "تست کره محلی", price: 85000 },
+                    { name: "تست نیمرو کلاسیک", price: 110000 }
+                ]
+            },
+            golden_waffles: {
+                title: "وافل طلایی با کره و شیره افرا",
+                modelUrl: BASE_URL + "golden_waffles_with_butter_and_maple_syrup.glb",
+                items: [
+                    { name: "وافل کلاسیک کره و شیره افرا", price: 165000 }
+                ]
+            },
+            pancake_pack: {
+                title: "پک پنکیک‌های ویژه (۶ مدل)",
+                modelUrl: BASE_URL + "cute_pancake_stacks_3d_model.glb",
+                items: [
+                    { name: "پنکیک کلاسیک کره و شیره", price: 130000 },
+                    { name: "پنکیک شکلاتی با خامه", price: 145000 },
+                    { name: "پنکیک کارامل و موز", price: 140000 },
+                    { name: "پنکیک بلوبری جنگلی", price: 155000 },
+                    { name: "پنکیک توت‌فرنگی و تمشک", price: 160000 },
+                    { name: "پنکیک ماچا و خامه", price: 150000 }
+                ]
+            }
+        };
+
+        // ۵. مدیر لودینگ مدل‌ها
+        const loadingManager = new THREE.LoadingManager(() => {
+            const loaderScreen = document.getElementById('loader-screen');
+            loaderScreen.style.opacity = '0';
+            setTimeout(() => loaderScreen.style.display = 'none', 500);
+        });
+        const loader = new GLTFLoader(loadingManager);
+        const clickableMeshes = [];
+
+        // لود استراکچر اصلی غرفه ۶ در ۴
+        loader.load(BASE_URL + "stan_6x4_gubukws.glb", (gltf) => {
+            const cafe = gltf.scene;
+            cafe.position.set(0, 0, 0);
+            scene.add(cafe);
+        });
+
+        // لود کانتر تیم هورتونز رو به روی ورودی
+        loader.load(BASE_URL + "Tim_hortons_counter.glb", (gltf) => {
+            const counter = gltf.scene;
+            counter.position.set(0, 0, -1.4);
+            scene.add(counter);
+        });
+
+        // تابع قرار دادن محصولات قابل کلیک در ویترین
+        function placeProduct(key, pos, scale) {
+            const data = productsCatalog[key];
+            loader.load(data.modelUrl, (gltf) => {
+                const model = gltf.scene;
+                model.scale.set(scale, scale, scale);
+                model.position.set(pos.x, pos.y, pos.z);
+                
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.userData.productKey = key;
+                        clickableMeshes.push(child);
+                    }
+                });
+                scene.add(model);
+            });
+        }
+
+        // چیدمان ۳ محصول در ویترین کانتر
+        placeProduct('breakfast_pack', { x: -0.35, y: 1.05, z: -1.35 }, 0.30);
+        placeProduct('golden_waffles', { x: 0.35,  y: 1.05, z: -1.35 }, 0.25);
+        placeProduct('pancake_pack',   { x: 0.0,   y: 1.32, z: -1.35 }, 0.28);
+
+        // ۶. سیستم کلیک و تاچ (Raycaster)
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        let downPos = { x: 0, y: 0 };
+
+        window.addEventListener('pointerdown', (e) => { downPos = { x: e.clientX, y: e.clientY }; });
+        window.addEventListener('pointerup', (e) => {
+            // تشخیص اینکه کاربر کلیک کرده نه اینکه دوربین رو چرخونده باشه
+            const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+            if (dist > 6) return;
+
+            if (document.getElementById('product-modal').style.display === 'flex' ||
+                document.getElementById('cart-modal').style.display === 'flex') return;
+
+            pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+            pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(pointer, camera);
+            const hits = raycaster.intersectObjects(clickableMeshes);
+            if (hits.length > 0) {
+                window.openProductModal(hits[0].object.userData.productKey);
+            }
+        });
+
+        // تغییر سایز صفحه
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // حلقه رندر
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // اتصال کاتالوگ به پنجره مرورگر برای توابع HTML
+        window.catalog = productsCatalog;
+    </script>
+
+    <!-- منطق رابط کاربری و سبد خرید -->
+    <script>
+        let cart = [];
+
+        window.openProductModal = function(key) {
+            const product = window.catalog[key];
+            if (!product) return;
+
+            document.getElementById('modal-title').innerText = product.title;
+            document.getElementById('viewer-3d').setAttribute('src', product.modelUrl);
+
+            const list = document.getElementById('modal-items');
+            list.innerHTML = '';
+
+            product.items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'item-row';
+                row.innerHTML = `
+                    <div>
+                        <div style="font-size:13px; font-weight:bold;">${item.name}</div>
+                        <div style="font-size:12px; color:#fbbf24;">${item.price.toLocaleString()} تومان</div>
+                    </div>
+                    <button class="add-btn" onclick="addToCart('${item.name}', ${item.price})">+ افزودن</button>
+                `;
+                list.appendChild(row);
+            });
+
+            document.getElementById('product-modal').style.display = 'flex';
+        };
+
+        window.closeProductModal = function() {
+            document.getElementById('product-modal').style.display = 'none';
+            document.getElementById('viewer-3d').setAttribute('src', '');
+        };
+
+        window.addToCart = function(name, price) {
+            cart.push({ name, price });
+            document.getElementById('cart-count').innerText = cart.length;
+            alert(`✅ "${name}" به سبد اضافه شد!`);
+        };
+
+        window.openCartModal = function() {
+            const container = document.getElementById('cart-items-container');
+            container.innerHTML = '';
+            let total = 0;
+
+            if (cart.length === 0) {
+                container.innerHTML = '<div style="text-align:center; color:#a1a1aa; padding:20px;">سبد خرید خالی است</div>';
+            } else {
+                cart.forEach((item, index) => {
+                    total += item.price;
+                    const row = document.createElement('div');
+                    row.className = 'item-row';
+                    row.innerHTML = `
+                        <div>
+                            <div style="font-size:13px;">${item.name}</div>
+                            <div style="font-size:11px; color:#fbbf24;">${item.price.toLocaleString()} تومان</div>
+                        </div>
+                        <button onclick="removeFromCart(${index})" style="background:none; border:none; color:#ef4444; cursor:pointer;">حذف</button>
+                    `;
+                    container.appendChild(row);
+                });
+            }
+
+            document.getElementById('cart-total').innerText = total.toLocaleString() + ' تومان';
+            document.getElementById('cart-modal').style.display = 'flex';
+        };
+
+        window.closeCartModal = function() {
+            document.getElementById('cart-modal').style.display = 'none';
+        };
+
+        window.removeFromCart = function(index) {
+            cart.splice(index, 1);
+            document.getElementById('cart-count').innerText = cart.length;
+            openCartModal();
+        };
+
+        window.submitOrder = function() {
+            if (cart.length === 0) return alert('سبد خرید خالی است!');
+            alert('🎉 سفارش شما با موفقیت ثبت شد!');
+            cart = [];
+            document.getElementById('cart-count').innerText = '0';
+            closeCartModal();
+        };
+    </script>
+</body>
+</html>
